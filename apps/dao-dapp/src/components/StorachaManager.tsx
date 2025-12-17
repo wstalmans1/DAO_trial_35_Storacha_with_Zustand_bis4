@@ -32,12 +32,12 @@ export default function StorachaManager() {
   const [email, setEmail] = useState('')
   const [newSpaceName, setNewSpaceName] = useState('')
   const [emailSent, setEmailSent] = useState(false)
+  const [showFirstTimeWarning, setShowFirstTimeWarning] = useState(false)
 
   // Initialize existing accounts on mount (only if authenticated)
   useEffect(() => {
     const initializeAccounts = async () => {
       const state = useStorachaStore.getState()
-      const persistedAccounts = state.accounts
       const isAuthenticated = state.isAuthenticated
       const currentAccount = state.currentAccount
       
@@ -51,7 +51,6 @@ export default function StorachaManager() {
       // If not authenticated, don't restore - user needs to login again
     }
     initializeAccounts()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Reset emailSent when authentication succeeds
@@ -71,6 +70,9 @@ export default function StorachaManager() {
 
   const handleLogin = async () => {
     if (!email) return
+    
+    // Always allow login attempt - account might exist in Storacha but not in our local state
+    setShowFirstTimeWarning(false)
     setEmailSent(true)
     try {
       await login(email)
@@ -80,6 +82,11 @@ export default function StorachaManager() {
     } catch (err) {
       console.error('Login failed:', err)
       setEmailSent(false)
+      // Check if error is about account not found
+      if (err instanceof Error && err.message.includes('No account found')) {
+        // Account doesn't exist or wasn't fully set up - show helpful message
+        setShowFirstTimeWarning(true)
+      }
       // Show error to user
       if (err instanceof Error) {
         // Error is already set in the store, but we can add more context
@@ -158,38 +165,81 @@ export default function StorachaManager() {
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="text-blue-400 text-sm p-3 bg-blue-500/10 border border-blue-500/20 rounded mb-4">
-              <p className="font-semibold mb-1">First time?</p>
-              <p className="text-xs">
-                Create your account at{' '}
-                <a
-                  href="https://console.storacha.network"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline hover:text-blue-300"
+            {showFirstTimeWarning ? (
+              <div className="space-y-4">
+                <div className="text-yellow-400 text-sm p-4 bg-yellow-500/10 border border-yellow-500/20 rounded">
+                  <p className="font-semibold mb-2">Account Not Found</p>
+                  <p className="mb-2">
+                    We couldn't find your Storacha account. This can happen if:
+                  </p>
+                  <ul className="list-disc list-inside mb-3 text-xs space-y-1">
+                    <li>You haven't created an account at console.storacha.network yet</li>
+                    <li>You created an account but haven't selected a payment plan</li>
+                    <li>There's a delay in account propagation (try again in a few moments)</li>
+                  </ul>
+                  <div className="flex gap-2 mt-3">
+                    <a
+                      href="https://console.storacha.network"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm"
+                    >
+                      Go to console.storacha.network
+                    </a>
+                    <button
+                      onClick={() => {
+                        setShowFirstTimeWarning(false)
+                        setEmail('')
+                      }}
+                      className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm"
+                    >
+                      Try Again
+                    </button>
+                  </div>
+                  <p className="text-xs mt-3 text-yellow-300/70">
+                    Make sure you've completed account creation and payment plan selection, then try logging in again.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="text-blue-400 text-sm p-3 bg-blue-500/10 border border-blue-500/20 rounded mb-4">
+                  <p className="font-semibold mb-1">First time?</p>
+                  <p className="text-xs">
+                    Create your account at{' '}
+                    <a
+                      href="https://console.storacha.network"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline hover:text-blue-300"
+                    >
+                      console.storacha.network
+                    </a>
+                    {' '}first, then login here.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Email Address</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value)
+                      setShowFirstTimeWarning(false)
+                    }}
+                    className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    placeholder="your@email.com"
+                  />
+                </div>
+                <button
+                  onClick={handleLogin}
+                  disabled={isLoading || !email}
+                  className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg"
                 >
-                  console.storacha.network
-                </a>
-                {' '}first, then login here.
-              </p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Email Address</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
-                placeholder="your@email.com"
-              />
-            </div>
-            <button
-              onClick={handleLogin}
-              disabled={isLoading || !email}
-              className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg"
-            >
-              {isLoading ? 'Logging in...' : 'Login'}
-            </button>
+                  {isLoading ? 'Logging in...' : 'Login'}
+                </button>
+              </>
+            )}
             <div className="text-yellow-400 text-sm p-3 bg-yellow-500/10 border border-yellow-500/20 rounded">
               ⚠️ <strong>Important:</strong> All data uploaded to Storacha is public and permanently stored (minimum 30-day retention). Do not upload sensitive information.
             </div>

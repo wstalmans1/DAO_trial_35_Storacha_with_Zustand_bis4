@@ -87,6 +87,7 @@ export const useStorachaStore = create<StorachaStore>()(
             console.log('[Storacha] Email confirmed, login successful')
 
             // Claim delegations to get latest spaces created elsewhere (e.g., in console)
+            // This also claims the account itself if it exists
             try {
               console.log('[Storacha] Claiming delegations...')
               const delegations = await client.capability.access.claim()
@@ -96,16 +97,31 @@ export const useStorachaStore = create<StorachaStore>()(
               // Continue - delegations might already be claimed
             }
 
-            // After login, get the account from client.accounts()
-            const accounts = client.accounts()
-            const accountEntries = Object.entries(accounts)
+            // After login and claiming, get the account from client.accounts()
+            // Note: If account was just created in console, we need to wait a moment for it to propagate
+            let accounts = client.accounts()
+            let accountEntries = Object.entries(accounts)
+            
+            // If no accounts found, try claiming again after a short delay
+            if (accountEntries.length === 0) {
+              console.log('[Storacha] No accounts found immediately, waiting and retrying...')
+              await new Promise(resolve => setTimeout(resolve, 1000))
+              // Try claiming again
+              try {
+                await client.capability.access.claim()
+              } catch {
+                // Ignore errors
+              }
+              accounts = client.accounts()
+              accountEntries = Object.entries(accounts)
+            }
             
             if (accountEntries.length === 0) {
-              throw new Error('No account found after login')
+              throw new Error('No account found after login. Please ensure you have created an account at console.storacha.network and completed the payment plan selection.')
             }
 
             // Get the first account (should be the one we just logged in with)
-            const [accountDID, account] = accountEntries[0]
+            const [accountDID] = accountEntries[0]
             console.log('[Storacha] Account found:', accountDID)
 
             // Check if payment plan is already selected (non-blocking)
@@ -117,7 +133,7 @@ export const useStorachaStore = create<StorachaStore>()(
               const planInfo = await client.capability.plan.get(accountDID as any)
               console.log('[Storacha] Payment plan status:', planInfo)
               planSelected = true
-            } catch (planError) {
+            } catch {
               // Plan not selected yet - this is OK, user can select it later
               console.log('[Storacha] Payment plan not yet selected - user can select plan at console.storacha.network')
               planSelected = false
