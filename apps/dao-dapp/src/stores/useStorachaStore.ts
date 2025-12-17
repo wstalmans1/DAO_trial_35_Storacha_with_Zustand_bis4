@@ -77,7 +77,10 @@ export const useStorachaStore = create<StorachaStore>()(
             if (!email.includes('@')) {
               throw new Error('Invalid email format')
             }
+            
+            console.log('[Storacha] Starting login for:', email)
             await client.login(email as `${string}@${string}`, { signal: controller.signal })
+            console.log('[Storacha] Email confirmed, login successful')
 
             // After login, get the account from client.accounts()
             const accounts = client.accounts()
@@ -89,12 +92,23 @@ export const useStorachaStore = create<StorachaStore>()(
 
             // Get the first account (should be the one we just logged in with)
             const [accountDID, account] = accountEntries[0]
+            console.log('[Storacha] Account found:', accountDID)
 
             // Wait for payment plan selection (required for provisioning spaces)
-            await account.plan.wait()
+            // This will wait up to 15 minutes (default) for user to select a plan
+            try {
+              console.log('[Storacha] Waiting for payment plan selection...')
+              await account.plan.wait()
+              console.log('[Storacha] Payment plan selected')
+            } catch (planError) {
+              // If plan selection times out or fails, still allow login but show warning
+              console.warn('[Storacha] Payment plan selection pending or failed:', planError)
+              // Continue with login - user can select plan later
+            }
 
             // Get agent DID
             const agentDID = client.agent.did()
+            console.log('[Storacha] Agent DID:', agentDID)
 
             // Update Zustand state (UI state only)
             const storachaAccount: StorachaAccount = {
@@ -105,12 +119,14 @@ export const useStorachaStore = create<StorachaStore>()(
               createdAt: new Date(),
             }
 
+            console.log('[Storacha] Setting authenticated state')
             set({
               currentAccount: storachaAccount,
               isAuthenticated: true,
               accounts: [...get().accounts.filter(a => a.id !== accountId), storachaAccount],
               isLoading: false,
             })
+            console.log('[Storacha] Login complete, state updated')
           } finally {
             clearTimeout(timeoutId)
           }

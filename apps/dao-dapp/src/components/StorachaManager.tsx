@@ -48,6 +48,14 @@ export default function StorachaManager() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Reset emailSent when authentication succeeds
+  useEffect(() => {
+    if (isAuthenticated && emailSent) {
+      setEmailSent(false)
+      setEmail('')
+    }
+  }, [isAuthenticated, emailSent])
+
   // Fetch spaces when space is selected
   useEffect(() => {
     if (selectedSpace) {
@@ -60,12 +68,17 @@ export default function StorachaManager() {
     setEmailSent(true)
     try {
       await login(email)
+      // Login successful - fetch spaces for the newly authenticated account
       await fetchSpaces()
-      setEmailSent(false)
-      setEmail('')
+      // emailSent will be reset by useEffect when isAuthenticated becomes true
     } catch (err) {
       console.error('Login failed:', err)
       setEmailSent(false)
+      // Show error to user
+      if (err instanceof Error) {
+        // Error is already set in the store, but we can add more context
+        console.error('Login error details:', err.message)
+      }
     }
   }
 
