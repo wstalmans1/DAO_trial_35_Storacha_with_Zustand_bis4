@@ -8,7 +8,6 @@ export default function StorachaManager() {
     currentAccount,
     isAuthenticated,
     accounts,
-    spaces,
     selectedSpace,
     spaceContents,
     isLoading,
@@ -21,16 +20,12 @@ export default function StorachaManager() {
     logout,
     switchAccount,
     fetchSpaces,
-    createSpace,
-    selectSpace,
-    fetchSpaceContents,
     uploadToSpace,
     deleteFromSpace,
     clearError,
   } = useStorachaStore()
 
   const [email, setEmail] = useState('')
-  const [newSpaceName, setNewSpaceName] = useState('')
   const [emailSent, setEmailSent] = useState(false)
   const [showFirstTimeWarning, setShowFirstTimeWarning] = useState(false)
 
@@ -61,12 +56,7 @@ export default function StorachaManager() {
     }
   }, [isAuthenticated, emailSent])
 
-  // Fetch spaces when space is selected
-  useEffect(() => {
-    if (selectedSpace) {
-      fetchSpaceContents(selectedSpace.id)
-    }
-  }, [selectedSpace, fetchSpaceContents])
+  // Auto-fetch contents when space is available (handled in fetchSpaces now)
 
   const handleLogin = async () => {
     if (!email) return
@@ -102,16 +92,6 @@ export default function StorachaManager() {
 
   const handleSwitchAccount = async (accountId: string) => {
     await switchAccount(accountId)
-  }
-
-  const handleCreateSpace = async () => {
-    if (!newSpaceName) return
-    try {
-      await createSpace(newSpaceName)
-      setNewSpaceName('')
-    } catch (err) {
-      console.error('Failed to create space:', err)
-    }
   }
 
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -175,6 +155,7 @@ export default function StorachaManager() {
                   <ul className="list-disc list-inside mb-3 text-xs space-y-1">
                     <li>You haven't created an account at console.storacha.network yet</li>
                     <li>You created an account but haven't selected a payment plan</li>
+                    <li>You haven't created a space in the console yet</li>
                     <li>There's a delay in account propagation (try again in a few moments)</li>
                   </ul>
                   <div className="flex gap-2 mt-3">
@@ -197,7 +178,7 @@ export default function StorachaManager() {
                     </button>
                   </div>
                   <p className="text-xs mt-3 text-yellow-300/70">
-                    Make sure you've completed account creation and payment plan selection, then try logging in again.
+                    Make sure you've completed account creation, payment plan selection, and created a space, then try logging in again.
                   </p>
                 </div>
               </div>
@@ -206,7 +187,7 @@ export default function StorachaManager() {
                 <div className="text-blue-400 text-sm p-3 bg-blue-500/10 border border-blue-500/20 rounded mb-4">
                   <p className="font-semibold mb-1">First time?</p>
                   <p className="text-xs">
-                    Create your account at{' '}
+                    Create your account and space at{' '}
                     <a
                       href="https://console.storacha.network"
                       target="_blank"
@@ -254,7 +235,7 @@ export default function StorachaManager() {
       {/* Account Info */}
       <div className="rounded-2xl border border-white/5 bg-white/5 p-6 backdrop-blur">
         <div className="flex justify-between items-start mb-4">
-          <h2 className="text-xl font-semibold">Storacha Account</h2>
+          <h2 className="text-xl font-semibold">Storacha Profile</h2>
           <button
             onClick={handleLogout}
             className="px-3 py-1 text-sm bg-red-500/10 hover:bg-red-500/20 rounded"
@@ -267,21 +248,13 @@ export default function StorachaManager() {
             <p>
               <strong>Email:</strong> {currentAccount.email}
             </p>
-            <p>
-              <strong>Account DID:</strong>{' '}
-              <code className="text-xs">{currentAccount.accountDID}</code>
-            </p>
-            <p>
-              <strong>Agent DID:</strong>{' '}
-              <code className="text-xs">{currentAccount.agentDID}</code>
-            </p>
           </div>
         )}
         {!paymentPlanSelected && (
           <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded text-yellow-400 text-sm">
             <p className="font-semibold mb-2">⚠️ Payment Plan Required</p>
             <p className="mb-2">
-              To create spaces and upload files, you need to select a payment plan.
+              To upload files, you need to select a payment plan.
             </p>
             <a
               href="https://console.storacha.network"
@@ -314,56 +287,32 @@ export default function StorachaManager() {
         )}
       </div>
 
-      {/* Spaces */}
-      <div className="rounded-2xl border border-white/5 bg-white/5 p-6 backdrop-blur">
-        <h2 className="text-xl font-semibold mb-4">Spaces</h2>
-        {isLoadingSpaces ? (
-          <p className="text-slate-400">Loading spaces...</p>
-        ) : (
-          <div className="space-y-4">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={newSpaceName}
-                onChange={(e) => setNewSpaceName(e.target.value)}
-                className="flex-1 px-4 py-2 bg-white/5 border border-white/10 rounded-lg"
-                placeholder="New space name"
-              />
-              <button
-                onClick={handleCreateSpace}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg"
-              >
-                Create Space
-              </button>
-            </div>
-            {spaces.length === 0 ? (
-              <p className="text-slate-400">No spaces yet. Create one above.</p>
-            ) : (
-              <div className="space-y-2">
-                {spaces.map((space) => (
-                  <div
-                    key={space.id}
-                    className={`p-3 rounded border cursor-pointer ${
-                      selectedSpace?.id === space.id
-                        ? 'border-blue-500 bg-blue-500/10'
-                        : 'border-white/10 bg-white/5'
-                    }`}
-                    onClick={() => selectSpace(space)}
-                  >
-                    <p className="font-medium">{space.name}</p>
-                    <p className="text-xs text-slate-400">{space.did}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Space Contents */}
-      {selectedSpace && (
+      {/* Profile Content - Only show if space is available */}
+      {isLoadingSpaces ? (
         <div className="rounded-2xl border border-white/5 bg-white/5 p-6 backdrop-blur">
-          <h2 className="text-xl font-semibold mb-4">Contents: {selectedSpace.name}</h2>
+          <p className="text-slate-400">Loading profile space...</p>
+        </div>
+      ) : !selectedSpace ? (
+        <div className="rounded-2xl border border-white/5 bg-white/5 p-6 backdrop-blur">
+          <div className="text-yellow-400 text-sm p-4 bg-yellow-500/10 border border-yellow-500/20 rounded">
+            <p className="font-semibold mb-2">No Space Found</p>
+            <p className="mb-2">
+              Please create a space at{' '}
+              <a
+                href="https://console.storacha.network"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:underline"
+              >
+                console.storacha.network
+              </a>
+              {' '}first, then refresh this page.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-white/5 bg-white/5 p-6 backdrop-blur">
+          <h2 className="text-xl font-semibold mb-4">Profile Files</h2>
           {error && (
             <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-sm">
               {error}
@@ -373,14 +322,17 @@ export default function StorachaManager() {
             </div>
           )}
           <div className="space-y-4">
-            <input
-              type="file"
-              onChange={handleFileUpload}
-              disabled={isLoadingContents}
-              className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
-            />
+            <div>
+              <label className="block text-sm font-medium mb-2">Upload Profile File</label>
+              <input
+                type="file"
+                onChange={handleFileUpload}
+                disabled={isLoadingContents}
+                className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+              />
+            </div>
             {isLoadingContents ? (
-              <p className="text-slate-400">Loading contents...</p>
+              <p className="text-slate-400">Loading files...</p>
             ) : (
               <div className="space-y-2">
                 {(spaceContents[selectedSpace.id] || []).length === 0 ? (

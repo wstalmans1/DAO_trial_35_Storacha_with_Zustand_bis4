@@ -29,6 +29,7 @@ interface StorachaStore {
   createSpace: (name: string) => Promise<void>
   deleteSpace: (spaceId: string) => Promise<void>
   selectSpace: (space: StorachaSpace | null) => void
+  ensureProofs: (client: any, retries?: number) => Promise<void>
 
   // Space contents actions
   fetchSpaceContents: (spaceId: string) => Promise<void>
@@ -235,7 +236,46 @@ export const useStorachaStore = create<StorachaStore>()(
         }))
       },
 
+      // Helper function to ensure proofs are available
+      ensureProofs: async (client: any, retries = 2): Promise<void> => {
+        for (let i = 0; i <= retries; i++) {
+          try {
+            // Check if we have proofs for space operations
+            const proofs = client.proofs()
+            if (proofs && proofs.length > 0) {
+              console.log('[Storacha] Proofs available:', proofs.length)
+              return
+            }
+            
+            // No proofs found, try claiming delegations
+            console.log(`[Storacha] No proofs found, claiming delegations (attempt ${i + 1}/${retries + 1})...`)
+            const delegations = await client.capability.access.claim()
+            console.log('[Storacha] Claimed delegations:', delegations.length)
+            
+            // Verify proofs are now available
+            const newProofs = client.proofs()
+            if (newProofs && newProofs.length > 0) {
+              console.log('[Storacha] Proofs now available:', newProofs.length)
+              return
+            }
+            
+            // If still no proofs and not last retry, wait before retrying
+            if (i < retries) {
+              await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)))
+            }
+          } catch (error) {
+            console.warn(`[Storacha] Error ensuring proofs (attempt ${i + 1}):`, error)
+            if (i === retries) {
+              throw new Error('Failed to obtain proofs after retries. Please ensure you have created a space at console.storacha.network.')
+            }
+            // Wait before retry
+            await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)))
+          }
+        }
+      },
+
       // Spaces actions
+      // Automatically selects and uses the first space
       fetchSpaces: async () => {
         const account = get().currentAccount
         if (!account) return
@@ -247,34 +287,50 @@ export const useStorachaStore = create<StorachaStore>()(
             client = await storachaClientManager.initializeClient(account.id)
           }
 
-          // Claim delegations to ensure we have latest spaces (e.g., created in console)
-          try {
-            await client.capability.access.claim()
-          } catch (claimError) {
-            // Delegations might already be claimed, continue anyway
-            console.log('[Storacha] Delegations already claimed or error:', claimError)
-          }
+          // Ensure proofs are available before operations
+          await get().ensureProofs(client)
 
           const spaces = client.spaces()
           console.log('[Storacha] Found spaces:', spaces.length)
-          const storachaSpaces: StorachaSpace[] = spaces.map((space) => {
-            const did = space.did()
-            // Handle both method and property access patterns
-            const name = 'name' in space && typeof (space as any).name === 'function' 
-              ? (space as any).name() 
-              : (space as any).name || did
-            const registered = 'registered' in space && typeof (space as any).registered === 'function'
-              ? (space as any).registered()
-              : (space as any).registered !== false // Default to true if not explicitly false
-            return {
-              id: did,
-              name: String(name),
-              did: did,
-              registered: Boolean(registered),
-            }
+          
+          if (spaces.length === 0) {
+            set({ 
+              spaces: [], 
+              isLoadingSpaces: false,
+              selectedSpace: null,
+              error: 'No space found. Please create a space at console.storacha.network first.'
+            })
+            return
+          }
+
+          // Automatically select the first space
+          const firstSpace = spaces[0]
+          const did = firstSpace.did()
+          const name = 'name' in firstSpace && typeof (firstSpace as any).name === 'function' 
+            ? (firstSpace as any).name() 
+            : (firstSpace as any).name || did
+          const registered = 'registered' in firstSpace && typeof (firstSpace as any).registered === 'function'
+            ? (firstSpace as any).registered()
+            : (firstSpace as any).registered !== false
+
+          const storachaSpace: StorachaSpace = {
+            id: did,
+            name: String(name),
+            did: did,
+            registered: Boolean(registered),
+          }
+
+          // Set current space in client
+          await client.setCurrentSpace(did as `did:${string}:${string}`)
+
+          set({ 
+            spaces: [storachaSpace], // Only store the first space
+            selectedSpace: storachaSpace,
+            isLoadingSpaces: false 
           })
 
-          set({ spaces: storachaSpaces, isLoadingSpaces: false })
+          // Automatically fetch contents for the first space
+          await get().fetchSpaceContents(did)
         } catch (error) {
           set({
             isLoadingSpaces: false,
@@ -351,6 +407,9 @@ export const useStorachaStore = create<StorachaStore>()(
           const client = storachaClientManager.getClient(account.id)
           if (!client) throw new Error('Client not initialized')
 
+          // Ensure proofs are available before operations
+          await get().ensureProofs(client)
+
           // Set current space (spaceId is already a DID string from space.did())
           await client.setCurrentSpace(spaceId as `did:${string}:${string}`)
 
@@ -385,6 +444,9 @@ export const useStorachaStore = create<StorachaStore>()(
           const client = storachaClientManager.getClient(account.id)
           if (!client) throw new Error('Client not initialized')
 
+          // Ensure proofs are available before operations
+          await get().ensureProofs(client)
+
           // Set current space (spaceId is already a DID string from space.did())
           await client.setCurrentSpace(spaceId as `did:${string}:${string}`)
 
@@ -409,6 +471,9 @@ export const useStorachaStore = create<StorachaStore>()(
         try {
           const client = storachaClientManager.getClient(account.id)
           if (!client) throw new Error('Client not initialized')
+
+          // Ensure proofs are available before operations
+          await get().ensureProofs(client)
 
           // Set current space (spaceId is already a DID string from space.did())
           await client.setCurrentSpace(spaceId as `did:${string}:${string}`)
