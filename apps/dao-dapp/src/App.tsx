@@ -10,19 +10,19 @@ export default function App() {
   useEffect(() => {
     // Initialize clients for persisted accounts on app load
     const initializeAccounts = async () => {
-      const persistedAccounts = useStorachaStore.getState().accounts
-      for (const account of persistedAccounts) {
-        await storachaClientManager.initializeClient(account.id)
+      const state = useStorachaStore.getState()
+      const persistedAccounts = state.accounts
+      const isAuthenticated = state.isAuthenticated
+      const currentAccount = state.currentAccount
+      
+      // Only restore accounts if user is authenticated and has a current account
+      if (isAuthenticated && currentAccount && persistedAccounts.length > 0) {
+        // Initialize client for the current account
+        await storachaClientManager.initializeClient(currentAccount.id)
+        // Restore the current account
+        await switchAccount(currentAccount.id)
       }
-      // Restore current account if exists
-      if (persistedAccounts.length > 0) {
-        const currentAccount = useStorachaStore.getState().currentAccount
-        if (currentAccount) {
-          await switchAccount(currentAccount.id)
-        } else {
-          await switchAccount(persistedAccounts[0].id)
-        }
-      }
+      // If not authenticated, don't restore - user needs to login again
     }
     initializeAccounts()
   }, [switchAccount])

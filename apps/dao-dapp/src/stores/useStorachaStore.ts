@@ -15,6 +15,7 @@ interface StorachaStore {
   isLoadingSpaces: boolean
   spaceContents: Record<string, StorachaContent[]>
   isLoadingContents: boolean
+  paymentPlanSelected: boolean
 
   // Authentication actions
   login: (email: string) => Promise<void>
@@ -50,6 +51,7 @@ const initialState = {
   isLoadingSpaces: false,
   spaceContents: {},
   isLoadingContents: false,
+  paymentPlanSelected: false,
 }
 
 export const useStorachaStore = create<StorachaStore>()(
@@ -58,6 +60,8 @@ export const useStorachaStore = create<StorachaStore>()(
       ...initialState,
 
       // Authentication actions
+      // Note: Accounts should be created at console.storacha.network first
+      // This function logs in to an existing Storacha account
       login: async (email: string) => {
         set({ isLoading: true, error: null })
         try {
@@ -66,7 +70,7 @@ export const useStorachaStore = create<StorachaStore>()(
           // Initialize client for this account
           const client = await storachaClientManager.initializeClient(accountId)
 
-          // Login with email (sends validation email)
+          // Login with email (sends validation email if first time on this device)
           // Implement 5-minute timeout
           // eslint-disable-next-line no-undef
           const controller = new AbortController()
@@ -82,6 +86,16 @@ export const useStorachaStore = create<StorachaStore>()(
             await client.login(email as `${string}@${string}`, { signal: controller.signal })
             console.log('[Storacha] Email confirmed, login successful')
 
+            // Claim delegations to get latest spaces created elsewhere (e.g., in console)
+            try {
+              console.log('[Storacha] Claiming delegations...')
+              const delegations = await client.capability.access.claim()
+              console.log('[Storacha] Claimed delegations:', delegations.length)
+            } catch (claimError) {
+              console.warn('[Storacha] Failed to claim delegations (may already be claimed):', claimError)
+              // Continue - delegations might already be claimed
+            }
+
             // After login, get the account from client.accounts()
             const accounts = client.accounts()
             const accountEntries = Object.entries(accounts)
@@ -94,17 +108,23 @@ export const useStorachaStore = create<StorachaStore>()(
             const [accountDID, account] = accountEntries[0]
             console.log('[Storacha] Account found:', accountDID)
 
-            // Wait for payment plan selection (required for provisioning spaces)
-            // This will wait up to 15 minutes (default) for user to select a plan
+            // Check if payment plan is already selected (non-blocking)
+            // Note: account.plan.wait() can hang if user hasn't selected a plan yet
+            // We'll check the plan status but not wait for it
+            let planSelected = false
             try {
-              console.log('[Storacha] Waiting for payment plan selection...')
-              await account.plan.wait()
-              console.log('[Storacha] Payment plan selected')
+              // Try to get plan info - if it succeeds, plan is selected
+              const planInfo = await client.capability.plan.get(accountDID as any)
+              console.log('[Storacha] Payment plan status:', planInfo)
+              planSelected = true
             } catch (planError) {
-              // If plan selection times out or fails, still allow login but show warning
-              console.warn('[Storacha] Payment plan selection pending or failed:', planError)
-              // Continue with login - user can select plan later
+              // Plan not selected yet - this is OK, user can select it later
+              console.log('[Storacha] Payment plan not yet selected - user can select plan at console.storacha.network')
+              planSelected = false
             }
+            
+            // Don't wait for plan selection - allow login to complete
+            // User can select plan at console.storacha.network if needed
 
             // Get agent DID
             const agentDID = client.agent.did()
@@ -125,6 +145,7 @@ export const useStorachaStore = create<StorachaStore>()(
               isAuthenticated: true,
               accounts: [...get().accounts.filter(a => a.id !== accountId), storachaAccount],
               isLoading: false,
+              paymentPlanSelected: planSelected,
             })
             console.log('[Storacha] Login complete, state updated')
           } finally {
@@ -150,6 +171,7 @@ export const useStorachaStore = create<StorachaStore>()(
           selectedSpace: null,
           spaces: [],
           spaceContents: {},
+          paymentPlanSelected: false,
         })
       },
 
@@ -160,7 +182,15 @@ export const useStorachaStore = create<StorachaStore>()(
           return
         }
         // Initialize client if not already done
-        await storachaClientManager.initializeClient(accountId)
+        const client = await storachaClientManager.initializeClient(accountId)
+        
+        // Claim delegations to get latest spaces
+        try {
+          await client.capability.access.claim()
+        } catch (claimError) {
+          console.log('[Storacha] Delegations already claimed or error:', claimError)
+        }
+        
         // Update Zustand state
         set({
           currentAccount: account,
@@ -201,7 +231,16 @@ export const useStorachaStore = create<StorachaStore>()(
             client = await storachaClientManager.initializeClient(account.id)
           }
 
+          // Claim delegations to ensure we have latest spaces (e.g., created in console)
+          try {
+            await client.capability.access.claim()
+          } catch (claimError) {
+            // Delegations might already be claimed, continue anyway
+            console.log('[Storacha] Delegations already claimed or error:', claimError)
+          }
+
           const spaces = client.spaces()
+          console.log('[Storacha] Found spaces:', spaces.length)
           const storachaSpaces: StorachaSpace[] = spaces.map((space) => {
             const did = space.did()
             // Handle both method and property access patterns

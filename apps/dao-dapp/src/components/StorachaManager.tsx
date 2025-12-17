@@ -15,6 +15,7 @@ export default function StorachaManager() {
     isLoadingSpaces,
     isLoadingContents,
     error,
+    paymentPlanSelected,
     // Actions
     login,
     logout,
@@ -32,17 +33,22 @@ export default function StorachaManager() {
   const [newSpaceName, setNewSpaceName] = useState('')
   const [emailSent, setEmailSent] = useState(false)
 
-  // Initialize existing accounts on mount
+  // Initialize existing accounts on mount (only if authenticated)
   useEffect(() => {
     const initializeAccounts = async () => {
-      const persistedAccounts = useStorachaStore.getState().accounts
-      for (const account of persistedAccounts) {
-        await storachaClientManager.initializeClient(account.id)
+      const state = useStorachaStore.getState()
+      const persistedAccounts = state.accounts
+      const isAuthenticated = state.isAuthenticated
+      const currentAccount = state.currentAccount
+      
+      // Only restore if user is authenticated
+      if (isAuthenticated && currentAccount) {
+        // Initialize client for the current account
+        await storachaClientManager.initializeClient(currentAccount.id)
+        // Fetch spaces for the current account
+        await useStorachaStore.getState().fetchSpaces()
       }
-      // If there's a current account, fetch its spaces
-      if (persistedAccounts.length > 0 && !currentAccount) {
-        await useStorachaStore.getState().switchAccount(persistedAccounts[0].id)
-      }
+      // If not authenticated, don't restore - user needs to login again
     }
     initializeAccounts()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -152,6 +158,21 @@ export default function StorachaManager() {
           </div>
         ) : (
           <div className="space-y-4">
+            <div className="text-blue-400 text-sm p-3 bg-blue-500/10 border border-blue-500/20 rounded mb-4">
+              <p className="font-semibold mb-1">First time?</p>
+              <p className="text-xs">
+                Create your account at{' '}
+                <a
+                  href="https://console.storacha.network"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-blue-300"
+                >
+                  console.storacha.network
+                </a>
+                {' '}first, then login here.
+              </p>
+            </div>
             <div>
               <label className="block text-sm font-medium mb-2">Email Address</label>
               <input
@@ -167,7 +188,7 @@ export default function StorachaManager() {
               disabled={isLoading || !email}
               className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg"
             >
-              {isLoading ? 'Logging in...' : 'Create Account'}
+              {isLoading ? 'Logging in...' : 'Login'}
             </button>
             <div className="text-yellow-400 text-sm p-3 bg-yellow-500/10 border border-yellow-500/20 rounded">
               ⚠️ <strong>Important:</strong> All data uploaded to Storacha is public and permanently stored (minimum 30-day retention). Do not upload sensitive information.
@@ -203,6 +224,25 @@ export default function StorachaManager() {
             <p>
               <strong>Agent DID:</strong>{' '}
               <code className="text-xs">{currentAccount.agentDID}</code>
+            </p>
+          </div>
+        )}
+        {!paymentPlanSelected && (
+          <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded text-yellow-400 text-sm">
+            <p className="font-semibold mb-2">⚠️ Payment Plan Required</p>
+            <p className="mb-2">
+              To create spaces and upload files, you need to select a payment plan.
+            </p>
+            <a
+              href="https://console.storacha.network"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:underline inline-block"
+            >
+              Select a plan at console.storacha.network →
+            </a>
+            <p className="mt-2 text-xs text-yellow-300/70">
+              After selecting a plan, refresh this page or log out and log back in.
             </p>
           </div>
         )}
