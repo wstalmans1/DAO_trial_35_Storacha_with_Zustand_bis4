@@ -94,7 +94,18 @@ export default function StorachaManager() {
     
     // Always allow login attempt - account might exist in Storacha but not in our local state
     setShowFirstTimeWarning(false)
-    setEmailSent(true)
+    
+    // Check if this account already exists in our persisted accounts
+    // If it does, login will likely complete immediately without email validation
+    const accountId = `account-${email}`
+    const accountExists = accounts.some(a => a.id === accountId)
+    
+    // Only show email waiting message if this is a new account
+    // For existing accounts, login should complete immediately
+    if (!accountExists) {
+      setEmailSent(true)
+    }
+    
     try {
       await login(email)
       // Login successful - fetch spaces for the newly authenticated account
