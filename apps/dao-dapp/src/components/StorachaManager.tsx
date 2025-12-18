@@ -39,8 +39,39 @@ export default function StorachaManager() {
       // Only restore if user is authenticated
       if (isAuthenticated && currentAccount) {
         // Initialize client for the current account
-        await storachaClientManager.initializeClient(currentAccount.id)
-        // Fetch spaces for the current account
+        const client = await storachaClientManager.initializeClient(currentAccount.id)
+        
+        // CRITICAL: Claim delegations FIRST to get latest spaces created in console
+        // This ensures we have the most up-to-date delegations before fetching spaces
+        console.log('[Storacha] Claiming delegations on mount to sync with console...')
+        try {
+          await client.capability.access.claim()
+          console.log('[Storacha] Delegations claimed successfully on mount')
+        } catch (claimError) {
+          console.log('[Storacha] Delegations claim on mount (may already be claimed):', claimError)
+          // Continue anyway - delegations might already be claimed
+        }
+        
+        // Re-check payment plan status on mount
+        try {
+          const accounts = client.accounts()
+          const accountEntries = Object.entries(accounts)
+          if (accountEntries.length > 0) {
+            const [accountDID] = accountEntries[0]
+            const planInfo = await client.capability.plan.get(accountDID as any)
+            if (planInfo && (planInfo as any).product) {
+              useStorachaStore.setState({ paymentPlanSelected: true })
+              console.log('[Storacha] Payment plan confirmed on mount')
+            } else {
+              useStorachaStore.setState({ paymentPlanSelected: false })
+            }
+          }
+        } catch {
+          console.log('[Storacha] Payment plan check failed on mount')
+          useStorachaStore.setState({ paymentPlanSelected: false })
+        }
+        
+        // Fetch spaces for the current account (after claiming delegations)
         await useStorachaStore.getState().fetchSpaces()
       }
       // If not authenticated, don't restore - user needs to login again

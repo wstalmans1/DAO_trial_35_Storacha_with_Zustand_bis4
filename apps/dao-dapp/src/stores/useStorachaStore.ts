@@ -133,10 +133,18 @@ export const useStorachaStore = create<StorachaStore>()(
               // Try to get plan info - if it succeeds, plan is selected
               const planInfo = await client.capability.plan.get(accountDID as any)
               console.log('[Storacha] Payment plan status:', planInfo)
-              planSelected = true
-            } catch {
+              // Check if planInfo actually contains plan data (not just empty object)
+              // The API returns an object with a 'product' field if a plan is selected
+              if (planInfo && (planInfo as any).product) {
+                planSelected = true
+                console.log('[Storacha] Payment plan confirmed:', (planInfo as any).product)
+              } else {
+                console.log('[Storacha] Payment plan API returned but no product found')
+                planSelected = false
+              }
+            } catch (planError) {
               // Plan not selected yet - this is OK, user can select it later
-              console.log('[Storacha] Payment plan not yet selected - user can select plan at console.storacha.network')
+              console.log('[Storacha] Payment plan not yet selected - user can select plan at console.storacha.network', planError)
               planSelected = false
             }
             
@@ -208,12 +216,30 @@ export const useStorachaStore = create<StorachaStore>()(
           console.log('[Storacha] Delegations already claimed or error:', claimError)
         }
         
+        // Re-check payment plan status when switching accounts
+        let planSelected = false
+        try {
+          const accounts = client.accounts()
+          const accountEntries = Object.entries(accounts)
+          if (accountEntries.length > 0) {
+            const [accountDID] = accountEntries[0]
+            const planInfo = await client.capability.plan.get(accountDID as any)
+            if (planInfo && (planInfo as any).product) {
+              planSelected = true
+              console.log('[Storacha] Payment plan confirmed for switched account')
+            }
+          }
+        } catch {
+          console.log('[Storacha] Payment plan not found for switched account')
+        }
+        
         // Update Zustand state
         set({
           currentAccount: account,
           isAuthenticated: true,
           selectedSpace: null,
           spaces: [], // Will be fetched separately
+          paymentPlanSelected: planSelected,
         })
         // Fetch spaces for the new account
         await get().fetchSpaces()
@@ -285,6 +311,17 @@ export const useStorachaStore = create<StorachaStore>()(
           let client = storachaClientManager.getClient(account.id)
           if (!client) {
             client = await storachaClientManager.initializeClient(account.id)
+          }
+
+          // CRITICAL: Always claim delegations before fetching spaces
+          // This ensures we have the latest delegations (including new spaces from console)
+          console.log('[Storacha] Claiming delegations before fetching spaces...')
+          try {
+            await client.capability.access.claim()
+            console.log('[Storacha] Delegations claimed before fetching spaces')
+          } catch (claimError) {
+            console.log('[Storacha] Delegations claim (may already be claimed):', claimError)
+            // Continue anyway - delegations might already be claimed
           }
 
           // Ensure proofs are available before operations
@@ -444,11 +481,36 @@ export const useStorachaStore = create<StorachaStore>()(
           const client = storachaClientManager.getClient(account.id)
           if (!client) throw new Error('Client not initialized')
 
+          // CRITICAL: Claim delegations first to ensure we have latest proofs
+          console.log('[Storacha] Claiming delegations before upload...')
+          try {
+            await client.capability.access.claim()
+            console.log('[Storacha] Delegations claimed before upload')
+          } catch (claimError) {
+            console.log('[Storacha] Delegations claim (may already be claimed):', claimError)
+          }
+
           // Ensure proofs are available before operations
           await get().ensureProofs(client)
 
           // Set current space (spaceId is already a DID string from space.did())
-          await client.setCurrentSpace(spaceId as `did:${string}:${string}`)
+          const spaceDID = spaceId as `did:${string}:${string}`
+          await client.setCurrentSpace(spaceDID)
+
+          // Verify we have proofs for space/blob/add capability before uploading
+          const blobProofs = client.proofs([{ can: 'space/blob/add', with: spaceDID }])
+          if (!blobProofs || blobProofs.length === 0) {
+            console.warn('[Storacha] No proofs found for space/blob/add, claiming delegations again...')
+            // Try claiming again and re-check
+            await client.capability.access.claim()
+            const retryProofs = client.proofs([{ can: 'space/blob/add', with: spaceDID }])
+            if (!retryProofs || retryProofs.length === 0) {
+              throw new Error('No proofs available for space/blob/add. Please ensure the space is properly created and delegated in console.storacha.network')
+            }
+            console.log('[Storacha] Proofs found after retry:', retryProofs.length)
+          } else {
+            console.log('[Storacha] Proofs available for space/blob/add:', blobProofs.length)
+          }
 
           // Upload file
           await client.uploadFile(file)
@@ -513,6 +575,7 @@ export const useStorachaStore = create<StorachaStore>()(
         accounts: state.accounts,
         currentAccount: state.currentAccount,
         isAuthenticated: state.isAuthenticated,
+        paymentPlanSelected: state.paymentPlanSelected,
       }),
     }
   )
