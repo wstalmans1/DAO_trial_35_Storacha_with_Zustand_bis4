@@ -216,7 +216,7 @@ export default function StorachaManager() {
             ) : (
               <>
                 <div className="text-blue-400 text-sm p-3 bg-blue-500/10 border border-blue-500/20 rounded mb-4">
-                  <p className="font-semibold mb-1">First time?</p>
+                  <p className="font-semibold mb-1">First time or new account?</p>
                   <p className="text-xs">
                     Create your account and space at{' '}
                     <a
