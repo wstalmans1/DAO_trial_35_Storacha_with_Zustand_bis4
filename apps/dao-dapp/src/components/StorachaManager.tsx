@@ -238,7 +238,7 @@ export default function StorachaManager() {
                     >
                       console.storacha.network
                     </a>
-                    {' '}first, then login here.
+                    {' '}first, then authenticate here.
                   </p>
                 </div>
                 <div>
@@ -259,7 +259,7 @@ export default function StorachaManager() {
                   disabled={isLoading || !email}
                   className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg"
                 >
-                  {isLoading ? 'Logging in...' : 'Login'}
+                  {isLoading ? 'Authenticating...' : 'Authenticate'}
                 </button>
               </>
             )}
