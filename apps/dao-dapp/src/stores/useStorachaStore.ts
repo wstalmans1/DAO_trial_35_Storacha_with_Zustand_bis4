@@ -4,6 +4,9 @@ import type { StorachaAccount, StorachaSpace, StorachaContent } from '../types/s
 import type { ParticipantProfile } from '../types/profile'
 import { storachaClientManager } from '../services/storacha/clientManager'
 
+// Unique filename for DApp profile to avoid conflicts with user uploads
+const PROFILE_FILENAME = 'dao-dapp-profile.json'
+
 interface StorachaStore {
   // State
   currentAccount: StorachaAccount | null
@@ -625,8 +628,8 @@ export const useStorachaStore = create<StorachaStore>()(
             const gatewayUrl = `https://${uploadCID}.ipfs.storacha.link`
             
             try {
-              // Try to fetch profile.json from this upload
-              const response = await fetch(`${gatewayUrl}/profile.json`)
+              // Try to fetch the DApp profile file from this upload
+              const response = await fetch(`${gatewayUrl}/${PROFILE_FILENAME}`)
               if (response.ok) {
                 const json = await response.json()
                 profileData = json as ParticipantProfile
@@ -643,7 +646,7 @@ export const useStorachaStore = create<StorachaStore>()(
           if (!profileData && get().profileCID) {
             const storedCID = get().profileCID
             try {
-              const response = await fetch(`https://${storedCID}.ipfs.storacha.link/profile.json`)
+              const response = await fetch(`https://${storedCID}.ipfs.storacha.link/${PROFILE_FILENAME}`)
               if (response.ok) {
                 const json = await response.json()
                 profileData = json as ParticipantProfile
@@ -697,9 +700,9 @@ export const useStorachaStore = create<StorachaStore>()(
             await client.capability.access.claim()
           }
 
-          // Create profile.json file
+          // Create profile file with unique DApp-specific filename to avoid conflicts
           const profileJSON = JSON.stringify(profile, null, 2)
-          const profileFile = new File([profileJSON], 'profile.json', { type: 'application/json' })
+          const profileFile = new File([profileJSON], PROFILE_FILENAME, { type: 'application/json' })
 
           // Upload profile.json
           // Note: uploadDirectory preserves directory structure, so we'll use that
