@@ -26,6 +26,7 @@ export default function ProfileEdit({ profile, onCancel, onSave }: ProfileEditPr
 
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const [avatarCID, setAvatarCID] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Initialize form with existing profile data
   useEffect(() => {
@@ -86,6 +87,9 @@ export default function ProfileEdit({ profile, onCancel, onSave }: ProfileEditPr
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     
+    // Disable button immediately for instant feedback
+    setIsSubmitting(true)
+    
     try {
       let finalAvatarCID = avatarCID
 
@@ -115,6 +119,8 @@ export default function ProfileEdit({ profile, onCancel, onSave }: ProfileEditPr
     } catch (error) {
       console.error('Failed to save profile:', error)
       // Error is already set in store
+      // Re-enable button on error so user can try again
+      setIsSubmitting(false)
     }
   }
 
@@ -228,16 +234,23 @@ export default function ProfileEdit({ profile, onCancel, onSave }: ProfileEditPr
       <div className="flex gap-2 pt-4">
         <button
           type="submit"
-          disabled={isSavingProfile || !formData.name.trim()}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg"
+          disabled={isSubmitting || isSavingProfile || !formData.name.trim()}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-medium transition-opacity"
         >
-          {isSavingProfile ? 'Saving...' : 'Save Profile'}
+          {isSubmitting || isSavingProfile ? (
+            <span className="flex items-center gap-2">
+              <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+              {isSubmitting && !isSavingProfile ? 'Preparing...' : 'Saving Profile...'}
+            </span>
+          ) : (
+            'Save Profile'
+          )}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          disabled={isSavingProfile}
-          className="px-4 py-2 bg-white/5 hover:bg-white/10 disabled:opacity-50 rounded-lg"
+          disabled={isSubmitting || isSavingProfile}
+          className="px-4 py-2 bg-white/5 hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg"
         >
           Cancel
         </button>
