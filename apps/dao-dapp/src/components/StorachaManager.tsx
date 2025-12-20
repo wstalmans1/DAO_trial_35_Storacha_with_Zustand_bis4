@@ -225,7 +225,7 @@ export default function StorachaManager() {
               <>
                 <div className="text-blue-400 text-sm p-3 bg-blue-500/10 border border-blue-500/20 rounded mb-4">
                   <p className="text-xs">
-                    New here? Create your account at{' '}
+                    New here or want to create an additional profile? Create your account/additional account at{' '}
                     <a
                       href="https://console.storacha.network"
                       target="_blank"
