@@ -613,47 +613,49 @@ export const useStorachaStore = create<StorachaStore>()(
           const spaceDID = selectedSpace.id as `did:${string}:${string}`
           await client.setCurrentSpace(spaceDID)
 
-          // Fetch space contents to find profile.json
+          // Fetch space contents to find profile file
           const result = await client.capability.upload.list({ cursor: '', size: 100 })
           
-          // Look for profile.json in the uploads
-          // Note: We need to check the directory structure, so we'll fetch each upload
-          // and check if it contains profile.json
           let profileCID: string | null = null
           let profileData: ParticipantProfile | null = null
 
-          // Try to find profile.json by checking directory listings
-          for (const upload of result.results) {
-            const uploadCID = upload.root.toString()
-            const gatewayUrl = `https://${uploadCID}.ipfs.storacha.link`
-            
+          // Helper function to validate and fetch profile from a direct file CID
+          const tryFetchProfile = async (cid: string): Promise<ParticipantProfile | null> => {
             try {
-              // Try to fetch the DApp profile file from this upload
-              const response = await fetch(`${gatewayUrl}/${PROFILE_FILENAME}`)
+              // Fetch directly from file CID (no directory wrapper)
+              const response = await fetch(`https://${cid}.ipfs.storacha.link`)
               if (response.ok) {
                 const json = await response.json()
-                profileData = json as ParticipantProfile
-                profileCID = uploadCID
-                break
+                // Validate it's a profile by checking for required fields
+                if (json && typeof json === 'object' && json.name && json.createdAt) {
+                  return json as ParticipantProfile
+                }
               }
             } catch {
-              // Not this upload, continue
-              continue
+              // Not found or invalid
+            }
+            return null
+          }
+
+          // First, try to fetch from stored profileCID
+          if (get().profileCID) {
+            const storedProfile = await tryFetchProfile(get().profileCID!)
+            if (storedProfile) {
+              profileData = storedProfile
+              profileCID = get().profileCID
             }
           }
 
-          // If not found in uploads, check if we have a stored profileCID
-          if (!profileData && get().profileCID) {
-            const storedCID = get().profileCID
-            try {
-              const response = await fetch(`https://${storedCID}.ipfs.storacha.link/${PROFILE_FILENAME}`)
-              if (response.ok) {
-                const json = await response.json()
-                profileData = json as ParticipantProfile
-                profileCID = storedCID
+          // If not found, search through uploads (treating each as a direct file CID)
+          if (!profileData) {
+            for (const upload of result.results) {
+              const uploadCID = upload.root.toString()
+              const foundProfile = await tryFetchProfile(uploadCID)
+              if (foundProfile) {
+                profileData = foundProfile
+                profileCID = uploadCID
+                break
               }
-            } catch {
-              // Profile not found at stored CID
             }
           }
 
@@ -704,10 +706,9 @@ export const useStorachaStore = create<StorachaStore>()(
           const profileJSON = JSON.stringify(profile, null, 2)
           const profileFile = new File([profileJSON], PROFILE_FILENAME, { type: 'application/json' })
 
-          // Upload profile.json
-          // Note: uploadDirectory preserves directory structure, so we'll use that
-          const files = [profileFile]
-          const cid = await client.uploadDirectory(files)
+          // Upload profile file directly (no directory wrapping)
+          // This gives us the file CID directly, independent of filename
+          const cid = await client.uploadFile(profileFile)
           const profileCID = cid.toString()
 
           // If there was an old profile, we could delete it here, but Storacha doesn't support deletion easily
