@@ -1018,13 +1018,15 @@ export async function getProfileCIDFromRegistry(
 **Mitigation**: Start with simple address-based DIDs, add document updates later
 
 ### Risk 2: UCAN Delegation Management
-**Risk**: Users need UCAN delegation to access Storacha spaces with DID:ethr: agent
+**Risk**: Users need UCAN delegation to access Storacha spaces with `did:key:` agent (not `did:ethr:` - Storacha agents use `did:key:`)
 **Mitigation**: 
 - **Option A**: Backend service creates delegations (requires backend)
 - **Option B**: Users get delegations from console (manual step)
 - **Option C**: Hybrid - backend creates delegations, users provide space DID
-- Store delegations in Zustand persisted state
+- Store delegations in Zustand persisted state (keyed by `did:key:` agent DID)
+- Store agent mapping (`did:ethr:` → `did:key:`) in Zustand persisted state
 - Provide clear instructions for delegation setup
+- Note: Delegations are created for `did:key:` agents, not `did:ethr:` (Storacha limitation)
 
 ### Risk 3: Storacha Storage Setup
 **Risk**: Users need Storacha account with payment plan for storage
