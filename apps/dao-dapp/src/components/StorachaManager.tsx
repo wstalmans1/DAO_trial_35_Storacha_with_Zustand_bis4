@@ -1,6 +1,8 @@
-import { useState, useEffect, type ChangeEvent } from 'react'
+import { useState, useEffect } from 'react'
 import { useStorachaStore } from '../stores'
 import { storachaClientManager } from '../services/storacha/clientManager'
+import ProfileView from './ProfileView'
+import ProfileEdit from './ProfileEdit'
 
 export default function StorachaManager() {
   const {
@@ -9,25 +11,28 @@ export default function StorachaManager() {
     isAuthenticated,
     accounts,
     selectedSpace,
-    spaceContents,
     isLoading,
     isLoadingSpaces,
-    isLoadingContents,
     error,
     paymentPlanSelected,
+    // Profile state
+    profile,
+    isLoadingProfile,
+    profileError,
+    clearProfileError,
     // Actions
     login,
     logout,
     switchAccount,
     fetchSpaces,
-    uploadToSpace,
-    deleteFromSpace,
     clearError,
+    loadProfile,
   } = useStorachaStore()
 
   const [email, setEmail] = useState('')
   const [emailSent, setEmailSent] = useState(false)
   const [showFirstTimeWarning, setShowFirstTimeWarning] = useState(false)
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
 
   // Initialize existing accounts on mount (only if authenticated)
   useEffect(() => {
@@ -73,11 +78,24 @@ export default function StorachaManager() {
         
         // Fetch spaces for the current account (after claiming delegations)
         await useStorachaStore.getState().fetchSpaces()
+        
+        // Load profile if space is available
+        const state = useStorachaStore.getState()
+        if (state.selectedSpace) {
+          await state.loadProfile()
+        }
       }
       // If not authenticated, don't restore - user needs to login again
     }
     initializeAccounts()
   }, [])
+
+  // Load profile when space becomes available
+  useEffect(() => {
+    if (isAuthenticated && selectedSpace && !isLoadingSpaces) {
+      loadProfile()
+    }
+  }, [selectedSpace, isAuthenticated, isLoadingSpaces, loadProfile])
 
   // Reset emailSent when authentication succeeds
   useEffect(() => {
@@ -136,32 +154,11 @@ export default function StorachaManager() {
     await switchAccount(accountId)
   }
 
-  const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || !selectedSpace) return
-    try {
-      await uploadToSpace(selectedSpace.id, file)
-      // Reset file input
-      e.target.value = ''
-    } catch (err) {
-      console.error('Failed to upload file:', err)
-    }
-  }
-
-  const handleDeleteContent = async (contentId: string) => {
-    if (!selectedSpace) return
-    if (!confirm('Are you sure you want to delete this content?')) return
-    try {
-      await deleteFromSpace(selectedSpace.id, contentId)
-    } catch (err) {
-      console.error('Failed to delete content:', err)
-    }
-  }
 
   if (!isAuthenticated) {
     return (
       <div className="rounded-2xl border border-white/5 bg-white/5 p-6 backdrop-blur">
-        <h2 className="text-xl font-semibold mb-4">Storacha Account</h2>
+        <h2 className="text-xl font-semibold mb-4">Profile</h2>
         {error && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-sm">
             {error}
@@ -181,8 +178,8 @@ export default function StorachaManager() {
             <p className="text-slate-400 text-sm">
               ⏱️ Waiting for email confirmation (timeout: 5 minutes)...
             </p>
-            <div className="text-yellow-400 text-sm p-3 bg-yellow-500/10 border border-yellow-500/20 rounded">
-              ⚠️ <strong>Important:</strong> All data uploaded to Storacha is public and permanently stored (minimum 30-day retention). Do not upload sensitive information.
+            <div className="text-yellow-400 text-xs p-3 bg-yellow-500/10 border border-yellow-500/20 rounded">
+              <strong>Note:</strong> All data is public and permanently stored. Do not upload sensitive information.
             </div>
           </div>
         ) : (
@@ -227,22 +224,21 @@ export default function StorachaManager() {
             ) : (
               <>
                 <div className="text-blue-400 text-sm p-3 bg-blue-500/10 border border-blue-500/20 rounded mb-4">
-                  <p className="font-semibold mb-1">First time or new account?</p>
                   <p className="text-xs">
-                    Create your account and space at{' '}
+                    New here? Create your account at{' '}
                     <a
                       href="https://console.storacha.network"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="underline hover:text-blue-300"
+                      className="underline hover:text-blue-300 font-medium"
                     >
                       console.storacha.network
                     </a>
-                    {' '}first, then authenticate here.
+                    {' '}first, then sign in below.
                   </p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-2">Email Address</label>
+                  <label className="block text-sm font-medium mb-2">Sign in with your profile email</label>
                   <input
                     type="email"
                     value={email}
@@ -250,21 +246,21 @@ export default function StorachaManager() {
                       setEmail(e.target.value)
                       setShowFirstTimeWarning(false)
                     }}
-                    className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white"
+                    className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-slate-500"
                     placeholder="your@email.com"
                   />
                 </div>
                 <button
                   onClick={handleLogin}
                   disabled={isLoading || !email}
-                  className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg"
+                  className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg font-medium"
                 >
-                  {isLoading ? 'Authenticating...' : 'Authenticate'}
+                  {isLoading ? 'Signing in...' : 'Sign in'}
                 </button>
               </>
             )}
-            <div className="text-yellow-400 text-sm p-3 bg-yellow-500/10 border border-yellow-500/20 rounded">
-              ⚠️ <strong>Important:</strong> All data uploaded to Storacha is public and permanently stored (minimum 30-day retention). Do not upload sensitive information.
+            <div className="text-yellow-400 text-xs p-3 bg-yellow-500/10 border border-yellow-500/20 rounded">
+              <strong>Note:</strong> All data is public and permanently stored. Do not upload sensitive information.
             </div>
           </div>
         )}
@@ -277,7 +273,7 @@ export default function StorachaManager() {
       {/* Account Info */}
       <div className="rounded-2xl border border-white/5 bg-white/5 p-6 backdrop-blur">
         <div className="flex justify-between items-start mb-4">
-          <h2 className="text-xl font-semibold">Storacha Profile</h2>
+          <h2 className="text-xl font-semibold">Profile</h2>
           <button
             onClick={handleLogout}
             className="px-3 py-1 text-sm bg-red-500/10 hover:bg-red-500/20 rounded"
@@ -285,13 +281,6 @@ export default function StorachaManager() {
             Logout
           </button>
         </div>
-        {currentAccount && (
-          <div className="space-y-2 text-sm">
-            <p>
-              <strong>Email:</strong> {currentAccount.email}
-            </p>
-          </div>
-        )}
         {!paymentPlanSelected && (
           <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded text-yellow-400 text-sm">
             <p className="font-semibold mb-2">⚠️ Payment Plan Required</p>
@@ -313,7 +302,7 @@ export default function StorachaManager() {
         )}
         {accounts.length > 1 && (
           <div className="mt-4">
-            <label className="block text-sm font-medium mb-2">Switch Account</label>
+            <label className="block text-sm font-medium mb-2">Switch Profile</label>
             <select
               onChange={(e) => handleSwitchAccount(e.target.value)}
               value={currentAccount?.id || ''}
@@ -353,64 +342,46 @@ export default function StorachaManager() {
           </div>
         </div>
       ) : (
-        <div className="rounded-2xl border border-white/5 bg-white/5 p-6 backdrop-blur">
-          <h2 className="text-xl font-semibold mb-4">Profile Files</h2>
-          {error && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-sm">
-              {error}
-              <button onClick={clearError} className="ml-2 underline">
-                Dismiss
-              </button>
-            </div>
-          )}
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Upload Profile File</label>
-              <input
-                type="file"
-                onChange={handleFileUpload}
-                disabled={isLoadingContents}
-                className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+        <>
+          {/* Profile Section */}
+          <div className="rounded-2xl border border-white/5 bg-white/5 p-6 backdrop-blur">
+            {profileError && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-sm">
+                {profileError}
+                <button onClick={clearProfileError} className="ml-2 underline">Dismiss</button>
+              </div>
+            )}
+
+            {isLoadingProfile ? (
+              <p className="text-slate-400">Loading profile...</p>
+            ) : isEditingProfile ? (
+              <ProfileEdit
+                profile={profile}
+                onCancel={() => setIsEditingProfile(false)}
+                onSave={() => {
+                  setIsEditingProfile(false)
+                  loadProfile()
+                }}
               />
-            </div>
-            {isLoadingContents ? (
-              <p className="text-slate-400">Loading files...</p>
+            ) : profile ? (
+              <ProfileView
+                profile={profile}
+                onEdit={() => setIsEditingProfile(true)}
+              />
             ) : (
-              <div className="space-y-2">
-                {(spaceContents[selectedSpace.id] || []).length === 0 ? (
-                  <p className="text-slate-400">No files uploaded yet.</p>
-                ) : (
-                  spaceContents[selectedSpace.id].map((content) => (
-                    <div
-                      key={content.id}
-                      className="flex justify-between items-center p-3 bg-white/5 rounded border border-white/10"
-                    >
-                      <div>
-                        <p className="font-medium">{content.name}</p>
-                        {content.gatewayUrl && (
-                          <a
-                            href={content.gatewayUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-blue-400 hover:underline"
-                          >
-                            View on IPFS
-                          </a>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => handleDeleteContent(content.id)}
-                        className="px-3 py-1 text-sm bg-red-500/10 hover:bg-red-500/20 rounded"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  ))
-                )}
+              <div className="space-y-4">
+                <p className="text-slate-400">No profile yet. Create one to get started!</p>
+                <button
+                  onClick={() => setIsEditingProfile(true)}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg"
+                >
+                  Create Profile
+                </button>
               </div>
             )}
           </div>
-        </div>
+
+        </>
       )}
     </div>
   )

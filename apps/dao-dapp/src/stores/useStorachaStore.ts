@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { StorachaAccount, StorachaSpace, StorachaContent } from '../types/storacha'
+import type { ParticipantProfile } from '../types/profile'
 import { storachaClientManager } from '../services/storacha/clientManager'
 
 interface StorachaStore {
@@ -16,6 +17,13 @@ interface StorachaStore {
   spaceContents: Record<string, StorachaContent[]>
   isLoadingContents: boolean
   paymentPlanSelected: boolean
+
+  // Profile state
+  profile: ParticipantProfile | null
+  profileCID: string | null
+  isLoadingProfile: boolean
+  isSavingProfile: boolean
+  profileError: string | null
 
   // Authentication actions
   login: (email: string) => Promise<void>
@@ -36,6 +44,13 @@ interface StorachaStore {
   uploadToSpace: (spaceId: string, file: File) => Promise<void>
   deleteFromSpace: (spaceId: string, contentId: string) => Promise<void>
 
+  // Profile actions
+  loadProfile: () => Promise<void>
+  saveProfile: (profile: ParticipantProfile) => Promise<void>
+  uploadAvatar: (file: File) => Promise<string> // Returns CID
+  deleteProfile: () => Promise<void>
+  clearProfileError: () => void
+
   // Utility actions
   clearError: () => void
   reset: () => void
@@ -53,6 +68,11 @@ const initialState = {
   spaceContents: {},
   isLoadingContents: false,
   paymentPlanSelected: false,
+  profile: null,
+  profileCID: null,
+  isLoadingProfile: false,
+  isSavingProfile: false,
+  profileError: null,
 }
 
 export const useStorachaStore = create<StorachaStore>()(
@@ -197,6 +217,12 @@ export const useStorachaStore = create<StorachaStore>()(
           spaces: [],
           spaceContents: {},
           paymentPlanSelected: false,
+          // Clear profile state on logout
+          profile: null,
+          profileCID: null,
+          isLoadingProfile: false,
+          isSavingProfile: false,
+          profileError: null,
         })
       },
 
@@ -233,13 +259,19 @@ export const useStorachaStore = create<StorachaStore>()(
           console.log('[Storacha] Payment plan not found for switched account')
         }
         
-        // Update Zustand state
+        // Update Zustand state - clear profile state when switching accounts
         set({
           currentAccount: account,
           isAuthenticated: true,
           selectedSpace: null,
           spaces: [], // Will be fetched separately
           paymentPlanSelected: planSelected,
+          // Clear profile state for the previous account
+          profile: null,
+          profileCID: null,
+          isLoadingProfile: false,
+          isSavingProfile: false,
+          profileError: null,
         })
         // Fetch spaces for the new account
         await get().fetchSpaces()
@@ -557,6 +589,206 @@ export const useStorachaStore = create<StorachaStore>()(
         }
       },
 
+      // Profile actions
+      loadProfile: async () => {
+        const account = get().currentAccount
+        const selectedSpace = get().selectedSpace
+        if (!account || !selectedSpace) {
+          set({ profileError: 'No account or space selected' })
+          return
+        }
+
+        set({ isLoadingProfile: true, profileError: null })
+        try {
+          const client = storachaClientManager.getClient(account.id)
+          if (!client) throw new Error('Client not initialized')
+
+          // Ensure proofs are available
+          await get().ensureProofs(client)
+
+          // Set current space
+          const spaceDID = selectedSpace.id as `did:${string}:${string}`
+          await client.setCurrentSpace(spaceDID)
+
+          // Fetch space contents to find profile.json
+          const result = await client.capability.upload.list({ cursor: '', size: 100 })
+          
+          // Look for profile.json in the uploads
+          // Note: We need to check the directory structure, so we'll fetch each upload
+          // and check if it contains profile.json
+          let profileCID: string | null = null
+          let profileData: ParticipantProfile | null = null
+
+          // Try to find profile.json by checking directory listings
+          for (const upload of result.results) {
+            const uploadCID = upload.root.toString()
+            const gatewayUrl = `https://${uploadCID}.ipfs.storacha.link`
+            
+            try {
+              // Try to fetch profile.json from this upload
+              const response = await fetch(`${gatewayUrl}/profile.json`)
+              if (response.ok) {
+                const json = await response.json()
+                profileData = json as ParticipantProfile
+                profileCID = uploadCID
+                break
+              }
+            } catch {
+              // Not this upload, continue
+              continue
+            }
+          }
+
+          // If not found in uploads, check if we have a stored profileCID
+          if (!profileData && get().profileCID) {
+            const storedCID = get().profileCID
+            try {
+              const response = await fetch(`https://${storedCID}.ipfs.storacha.link/profile.json`)
+              if (response.ok) {
+                const json = await response.json()
+                profileData = json as ParticipantProfile
+                profileCID = storedCID
+              }
+            } catch {
+              // Profile not found at stored CID
+            }
+          }
+
+          set({
+            profile: profileData,
+            profileCID: profileCID,
+            isLoadingProfile: false,
+          })
+        } catch (error) {
+          set({
+            isLoadingProfile: false,
+            profileError: error instanceof Error ? error.message : 'Failed to load profile',
+          })
+        }
+      },
+
+      saveProfile: async (profile: ParticipantProfile) => {
+        const account = get().currentAccount
+        const selectedSpace = get().selectedSpace
+        if (!account || !selectedSpace) {
+          throw new Error('No account or space selected')
+        }
+
+        set({ isSavingProfile: true, profileError: null })
+        try {
+          const client = storachaClientManager.getClient(account.id)
+          if (!client) throw new Error('Client not initialized')
+
+          // Claim delegations and ensure proofs
+          try {
+            await client.capability.access.claim()
+          } catch {
+            // Ignore if already claimed
+          }
+          await get().ensureProofs(client)
+
+          // Set current space
+          const spaceDID = selectedSpace.id as `did:${string}:${string}`
+          await client.setCurrentSpace(spaceDID)
+
+          // Verify proofs
+          const blobProofs = client.proofs([{ can: 'space/blob/add', with: spaceDID }])
+          if (!blobProofs || blobProofs.length === 0) {
+            await client.capability.access.claim()
+          }
+
+          // Create profile.json file
+          const profileJSON = JSON.stringify(profile, null, 2)
+          const profileFile = new File([profileJSON], 'profile.json', { type: 'application/json' })
+
+          // Upload profile.json
+          // Note: uploadDirectory preserves directory structure, so we'll use that
+          const files = [profileFile]
+          const cid = await client.uploadDirectory(files)
+          const profileCID = cid.toString()
+
+          // If there was an old profile, we could delete it here, but Storacha doesn't support deletion easily
+          // The new upload will be the latest version
+
+          set({
+            profile: profile,
+            profileCID: profileCID,
+            isSavingProfile: false,
+          })
+
+          // Refresh space contents
+          await get().fetchSpaceContents(selectedSpace.id)
+        } catch (error) {
+          set({
+            isSavingProfile: false,
+            profileError: error instanceof Error ? error.message : 'Failed to save profile',
+          })
+          throw error
+        }
+      },
+
+      uploadAvatar: async (file: File): Promise<string> => {
+        const account = get().currentAccount
+        const selectedSpace = get().selectedSpace
+        if (!account || !selectedSpace) {
+          throw new Error('No account or space selected')
+        }
+
+        try {
+          const client = storachaClientManager.getClient(account.id)
+          if (!client) throw new Error('Client not initialized')
+
+          // Claim delegations and ensure proofs
+          try {
+            await client.capability.access.claim()
+          } catch {
+            // Ignore if already claimed
+          }
+          await get().ensureProofs(client)
+
+          // Set current space
+          const spaceDID = selectedSpace.id as `did:${string}:${string}`
+          await client.setCurrentSpace(spaceDID)
+
+          // Verify proofs
+          const blobProofs = client.proofs([{ can: 'space/blob/add', with: spaceDID }])
+          if (!blobProofs || blobProofs.length === 0) {
+            await client.capability.access.claim()
+          }
+
+          // Upload avatar file
+          const cid = await client.uploadFile(file)
+          return cid.toString()
+        } catch (error) {
+          throw new Error(error instanceof Error ? error.message : 'Failed to upload avatar')
+        }
+      },
+
+      deleteProfile: async () => {
+        const account = get().currentAccount
+        const selectedSpace = get().selectedSpace
+        const profileCID = get().profileCID
+
+        if (!account || !selectedSpace || !profileCID) {
+          throw new Error('No profile to delete')
+        }
+
+        try {
+          await get().deleteFromSpace(selectedSpace.id, profileCID)
+          set({
+            profile: null,
+            profileCID: null,
+          })
+        } catch (error) {
+          set({
+            profileError: error instanceof Error ? error.message : 'Failed to delete profile',
+          })
+          throw error
+        }
+      },
+
+      clearProfileError: () => set({ profileError: null }),
+
       // Utility actions
       clearError: () => set({ error: null }),
 
@@ -565,7 +797,14 @@ export const useStorachaStore = create<StorachaStore>()(
         storachaClientManager.getAccountIds().forEach((id) => {
           storachaClientManager.removeClient(id)
         })
-        set(initialState)
+        set({
+          ...initialState,
+          profile: null,
+          profileCID: null,
+          isLoadingProfile: false,
+          isSavingProfile: false,
+          profileError: null,
+        })
       },
     }),
     {
