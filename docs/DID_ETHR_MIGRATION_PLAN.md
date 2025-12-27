@@ -530,3 +530,4 @@ export async function getProfileCIDFromRegistry(
 - [RainbowKit Documentation](https://rainbowkit.com/)
 - [wagmi Documentation](https://wagmi.sh/)
 - [Storacha Documentation](https://docs.storacha.network/)
+test
